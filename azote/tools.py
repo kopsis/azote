@@ -356,8 +356,10 @@ def assoc_from_xdgmime():
 
     for file_type in common.allowed_file_types:
         cmd = 'xdg-mime query default image/{}'.format(file_type)
-        # Run command in subprocess, output is a .desktop file name
-        # filename = [ output ]
+        cmd_output = subprocess.check_output(cmd, shell=True).decode("utf-8").strip()
+        filenames = []
+        for line in cmd_output:
+            filenames.append(line.strip())
         
         for i in range(len(filenames)):
             filenames[i] = usr_share('applications/{}'.format(filenames[i]))
