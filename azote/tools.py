@@ -54,6 +54,10 @@ def str_to_bool(s):
         raise ValueError
 
 
+def usr_share(s):
+    return os.path.join('/usr/share', s)
+
+
 def check_displays():
     # Sway or not Sway?
     common.sway = os.getenv('SWAYSOCK')
@@ -292,6 +296,99 @@ def current_display():
             break
     return display_number
 
+def assoc_from_mimeinfo():
+    associations = {}
+    with open(usr_share('applications/mimeinfo.cache')) as f:
+        mimeinfo_cache = f.read().splitlines()
+
+    for file_type in common.allowed_file_types:
+        for line in mimeinfo_cache:
+            if line.startswith('image/{}'.format(file_type)):
+                line = line.split('=')[1]  # cut out leading 'image/ext'
+                # Paths to .desktop files for opener names found
+                filenames = line[:-1].split(';')  # cut out trailing ';' to avoid empty last element after splitting
+                # prepend path
+                for i in range(len(filenames)):
+                    filenames[i] = usr_share('applications/{}'.format(filenames[i]))
+
+                data = []
+                for i in range(len(filenames)):
+                    # Let's find the program Name= and Exec= in /usr/share/applications/shortcut_name.desktop
+                    name, exe = '', ''
+
+                    if os.path.isfile(filenames[i]):
+                        with open(filenames[i]) as f:
+                            rows = f.read().splitlines()
+                            for row in rows:
+                                if row.startswith('Name='):
+                                    name = row.split('=')[1]
+                                elif row.startswith('Name[{}]='.format(common.lang.lang[0:2])):
+                                    name = row.split('=')[1]
+                                if row.startswith('Exec'):
+                                    exe = row.split('=')[1].split()[0]
+                                    continue
+                        if name and exe:
+                            data.append((name, exe))
+                associations[file_type] = data
+                """
+                Not necessarily all programs register jpg and jpeg extension (e.g. gimp registers jpeg only).
+                Let's create sets, join them and replace lists for both jpg and jpeg keys.
+                """
+                try:
+                    jpg = set(associations['jpg'])
+                    jpeg = set(associations['jpeg'])
+                    together = jpg | jpeg
+                    associations['jpg'] = together
+                    associations['jpeg'] = together
+                except KeyError:
+                    pass
+                # What if nothing found for 'jpg' or 'jpeg'?
+                if 'jpg' not in associations and 'jpeg' in associations:
+                    associations['jpg'] = associations['jpeg']
+                elif 'jpeg' not in associations and 'jpg' in associations:
+                    associations['jpeg'] = associations['jpg']
+
+    return associations
+
+
+def assoc_from_xdgmime():
+    associations = {}
+
+    for file_type in common.allowed_file_types:
+        cmd = 'xdg-mime query default image/{}'.format(file_type)
+        # Run command in subprocess, output is a .desktop file name
+        # filename = [ output ]
+        
+        for i in range(len(filenames)):
+            filenames[i] = usr_share('applications/{}'.format(filenames[i]))
+
+        data = []
+        for i in range(len(filenames)):
+            # Let's find the program Name= and Exec= in /usr/share/applications/shortcut_name.desktop
+            name, exe = '', ''
+
+            if os.path.isfile(filenames[i]):
+                with open(filenames[i]) as f:
+                    rows = f.read().splitlines()
+                    for row in rows:
+                        if row.startswith('Name='):
+                            name = row.split('=')[1]
+                        elif row.startswith('Name[{}]='.format(common.lang.lang[0:2])):
+                            name = row.split('=')[1]
+                        if row.startswith('Exec'):
+                            exe = row.split('=')[1].split()[0]
+                            continue
+                if name and exe:
+                    data.append((name, exe))
+        associations[file_type] = data
+
+    if 'jpg' not in associations and 'jpeg' in associations:
+        associations['jpg'] = associations['jpeg']
+    elif 'jpeg' not in associations and 'jpg' in associations:
+        associations['jpeg'] = associations['jpg']
+
+    return associations
+
 
 def set_env(__version__, lang_from_args=None):
     xdg_config_home = os.getenv('XDG_CONFIG_HOME')
@@ -394,11 +491,11 @@ def set_env(__version__, lang_from_args=None):
         shutil.copyfile(os.path.join(dir_name, 'images/azote-wallpaper2.png'), os.path.join(common.sample_dir, 'azote-wallpaper2.png'))
 
     # Sway comes with some sample wallpapers
-    if common.sway and os.path.isdir('/usr/share/backgrounds/sway'):
-        common.sample_dir = '/usr/share/backgrounds/sway'
+    if common.sway and os.path.isdir(usr_share('backgrounds/sway')):
+        common.sample_dir = usr_share('backgrounds/sway')
 
-    if os.path.isdir('/usr/share/backgrounds/nwg-shell'):
-        common.sample_dir = '/usr/share/backgrounds/nwg-shell'
+    if os.path.isdir(usr_share('backgrounds/nwg-shell')):
+        common.sample_dir = usr_share('backgrounds/nwg-shell')
 
     common.settings = Settings()
     if common.settings.clear_thumbnails:
@@ -406,62 +503,14 @@ def set_env(__version__, lang_from_args=None):
         common.settings.clear_thumbnails = False
 
     # check programs capable of opening files of allowed extensions
-    if os.path.isfile('/usr/share/applications/mimeinfo.cache'):
-        common.associations = {}  # Will stay None if the mimeinfo.cache file not found
+    if os.path.isfile(usr_share('applications/mimeinfo.cache')):
+        common.associations = assoc_from_mimeinfo()
+    else:
+        common.associations = assoc_from_xdgmime()
 
-        with open(os.path.join('/usr/share/applications/mimeinfo.cache')) as f:
-            mimeinfo_cache = f.read().splitlines()
-
-        for file_type in common.allowed_file_types:
-            for line in mimeinfo_cache:
-                if line.startswith('image/{}'.format(file_type)):
-                    line = line.split('=')[1]  # cut out leading 'image/ext'
-                    # Paths to .desktop files for opener names found
-                    filenames = line[:-1].split(';')  # cut out trailing ';' to avoid empty last element after splitting
-                    # prepend path
-                    for i in range(len(filenames)):
-                        filenames[i] = '/usr/share/applications/{}'.format(filenames[i])
-
-                    data = []
-                    for i in range(len(filenames)):
-                        # Let's find the program Name= and Exec= in /usr/share/applications/shortcut_name.desktop
-                        name, exe = '', ''
-
-                        if os.path.isfile(filenames[i]):
-                            with open(filenames[i]) as f:
-                                rows = f.read().splitlines()
-                                for row in rows:
-                                    if row.startswith('Name='):
-                                        name = row.split('=')[1]
-                                    elif row.startswith('Name[{}]='.format(common.lang.lang[0:2])):
-                                        name = row.split('=')[1]
-                                    if row.startswith('Exec'):
-                                        exe = row.split('=')[1].split()[0]
-                                        continue
-                            if name and exe:
-                                data.append((name, exe))
-                    common.associations[file_type] = data
-                    """
-                    Not necessarily all programs register jpg and jpeg extension (e.g. gimp registers jpeg only).
-                    Let's create sets, join them and replace lists for both jpg and jpeg keys.
-                    """
-                    try:
-                        jpg = set(common.associations['jpg'])
-                        jpeg = set(common.associations['jpeg'])
-                        together = jpg | jpeg
-                        common.associations['jpg'] = together
-                        common.associations['jpeg'] = together
-                    except KeyError:
-                        pass
-                    # What if nothing found for 'jpg' or 'jpeg'?
-                    if 'jpg' not in common.associations and 'jpeg' in common.associations:
-                        common.associations['jpg'] = common.associations['jpeg']
-                    elif 'jpeg' not in common.associations and 'jpg' in common.associations:
-                        common.associations['jpeg'] = common.associations['jpg']
-
+    if common.associations != None:
         log("Image associations: {}".format(common.associations), common.INFO)
     else:
-        print('Failed opening /usr/share/applications/mimeinfo.cache')
         log("Failed creating image associations: /usr/share/applications/mimeinfo.cache file not found."
             " Setting feh as the only viewer.", common.ERROR)
 
